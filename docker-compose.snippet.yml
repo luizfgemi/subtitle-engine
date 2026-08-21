@@ -1,0 +1,44 @@
+services:
+  subtitle-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: subtitle-engine
+    hostname: subtitle-engine
+    runtime: nvidia
+    environment:
+      - TZ=${TZ:-UTC}
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - LD_LIBRARY_PATH=/usr/local/lib/python3.12/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.12/site-packages/nvidia/cudnn/lib:/usr/lib/wsl/lib
+      - BAZARR_URL=http://bazarr:6767/api
+      - BAZARR_API_KEY=${BAZARR_API_KEY}
+      - BAZARR_DATABASE=/bazarr_db/bazarr.db
+      - MOVIE_ROOT=/movies
+      - SERIES_ROOT=/series
+      - API_HOST=0.0.0.0
+      - API_PORT=8090
+      - SCHEDULER_ENABLED=true
+      - SCHEDULE_BATCH_MISSING_INTERVAL_MINUTES=30
+      - SCHEDULE_GUARDIAN_INTERVAL_HOURS=6
+    volumes:
+      - /usr/lib/wsl/lib:/usr/lib/wsl/lib:ro
+      - ./data:/app/data
+      - ./models:/app/models
+      - ${BAZARR_DB_PATH:-/var/lib/bazarr/db}:/bazarr_db:ro
+      - ${MOVIES:-/movies}:/movies
+      - ${SERIES:-/series}:/series
+    devices:
+      - /dev/dxg:/dev/dxg
+    ports:
+      - 8090:8090
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:8090/health\", timeout=15)' || exit 1"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    stop_grace_period: 1m
