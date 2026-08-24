@@ -14,7 +14,7 @@ import time
 from pathlib import Path
 
 from app import config
-from app.schemas import GuardianAuditResponse
+from app.models import GuardianResult
 
 LOGGER = logging.getLogger("subtitle-engine.guardian")
 
@@ -147,7 +147,7 @@ def audit_subtitle_sync(subtitle_path: Path) -> dict[str, str | float]:
     return {"status": "unknown", "reason": "no history match in Bazarr DB"}
 
 
-def run_guardian_audit(apply_cleanup: bool = False) -> GuardianAuditResponse:
+def run_guardian_audit(apply_cleanup: bool = False) -> GuardianResult:
     """Execute complete Guardian audit: orphan purge and sync validation summary.
 
     Args:
@@ -155,11 +155,11 @@ def run_guardian_audit(apply_cleanup: bool = False) -> GuardianAuditResponse:
         apply_cleanup: If True, delete orphan files on disk.
 
     Returns:
-        GuardianAuditResponse DTO.
+        Domain result with audit counts and status.
     """
     try:
         candidates_count, deleted_count = cleanup_orphan_subtitles(apply=apply_cleanup)
-        return GuardianAuditResponse(
+        return GuardianResult(
             status="completed",
             orphan_candidates=candidates_count,
             deleted_count=deleted_count,
@@ -168,7 +168,7 @@ def run_guardian_audit(apply_cleanup: bool = False) -> GuardianAuditResponse:
         )
     except Exception as err:
         LOGGER.error("Guardian audit failed: %s", err)
-        return GuardianAuditResponse(
+        return GuardianResult(
             status="error",
             orphan_candidates=0,
             deleted_count=0,

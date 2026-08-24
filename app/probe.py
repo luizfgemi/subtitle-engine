@@ -9,8 +9,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from app import config
-
 LOGGER = logging.getLogger("subtitle-engine.probe")
 
 
