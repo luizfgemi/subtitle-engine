@@ -2,7 +2,7 @@ services:
   subtitle-engine:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Containerfile
     container_name: subtitle-engine
     hostname: subtitle-engine
     runtime: nvidia
