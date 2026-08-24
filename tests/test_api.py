@@ -11,7 +11,9 @@ def test_health_check():
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "ok"
+    assert data["version"] == "0.3.0"
     assert data["whisper_model"] == "large-v3-turbo"
+    assert data["translation_model"] == "translategemma:12b"
 
 
 def test_probe_nonexistent_file():
@@ -51,5 +53,3 @@ def test_guardian_audit_endpoint():
     data = response.json()
     assert data["status"] == "completed"
     assert "orphan_candidates" in data
-
-

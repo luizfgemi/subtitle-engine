@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import logging
-import sqlite3
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
 
 from contextlib import asynccontextmanager
+from app import __version__
 from app import config
+from app.batch import process_missing
 from app.guardian import run_guardian_audit
 from app.pipeline import process_video_subtitles
 from app.probe import probe_media
@@ -35,14 +36,16 @@ LOGGER = logging.getLogger("subtitle-engine.api")
 async def lifespan(app: FastAPI):
     """Manage application startup and shutdown lifecycle events."""
     start_scheduler()
-    yield
-    stop_scheduler()
+    try:
+        yield
+    finally:
+        await stop_scheduler()
 
 
 app = FastAPI(
     title="Subtitle Engine",
     description="Subtitle generation, extraction, translation and guardian microservice",
-    version="0.1.0",
+    version=__version__,
     lifespan=lifespan,
 )
 
@@ -52,9 +55,10 @@ def health_check() -> HealthResponse:
     """Return runtime service health and Whisper GPU configuration."""
     return HealthResponse(
         status="ok",
-        version="0.1.0",
+        version=__version__,
         whisper_model=config.WHISPER_MODEL,
         whisper_device=config.WHISPER_DEVICE,
+        translation_model=config.OLLAMA_MODEL,
     )
 
 
@@ -164,75 +168,28 @@ def handle_bazarr_event(payload: dict[str, Any]) -> PipelineResultResponse:
 
 @app.post("/api/v1/batch-missing", response_model=BatchMissingResponse)
 def process_batch_missing(req: BatchMissingRequest) -> BatchMissingResponse:
-    """Query Bazarr DB for missing pt-BR subtitles and process them in batch."""
-    bazarr_db_path = config.BAZARR_DATABASE_PATH
-    if not bazarr_db_path.is_file():
-        return BatchMissingResponse(
-            status="error",
-            message=f"Bazarr DB not found at {bazarr_db_path}",
-            total_missing_found=0,
-            processed_count=0,
-            results=[],
-        )
-
-    missing_paths: list[Path] = []
-    try:
-        conn = sqlite3.connect(f"file:{bazarr_db_path}?mode=ro", uri=True)
-        conn.row_factory = sqlite3.Row
-
-        query = (
-            "SELECT path FROM table_movies WHERE missing_subtitles LIKE '%pb%' OR missing_subtitles LIKE '%pt-BR%' "
-            "UNION ALL "
-            "SELECT path FROM table_episodes WHERE missing_subtitles LIKE '%pb%' OR missing_subtitles LIKE '%pt-BR%'"
-        )
-
-        rows = conn.execute(query).fetchall()
-        for row in rows:
-            p = Path(row["path"])
-            if p.is_file():
-                # Filter out files that already have target subtitle on disk
-                target_srt = p.with_name(f"{p.stem}.{req.target_language}.srt")
-                if not target_srt.is_file():
-                    missing_paths.append(p)
-
-        conn.close()
-    except Exception as err:
-        LOGGER.error("Failed to query Bazarr DB: %s", err)
-        return BatchMissingResponse(
-            status="error",
-            message=str(err),
-            total_missing_found=0,
-            processed_count=0,
-            results=[],
-        )
-
-    selected = missing_paths[: req.limit]
-    results: list[PipelineResultResponse] = []
-
-    for video_path in selected:
-        res = process_video_subtitles(video_path, req.target_language)
-        results.append(
-            PipelineResultResponse(
-                video_path=str(res.video_path),
-                output_srt=str(res.output_srt) if res.output_srt else None,
-                status=res.status,
-                source_method=res.source_method,
-                details=res.details,
-            )
-        )
-
+    """Process media Bazarr reports as missing the target subtitle."""
+    result = process_missing(req.limit, req.target_language)
     return BatchMissingResponse(
-        status="completed",
-        total_missing_found=len(missing_paths),
-        processed_count=len(results),
-        results=results,
-        message=f"Processed {len(results)} truly missing items out of {len(missing_paths)} candidates.",
+        status=result.status,
+        total_missing_found=result.total_missing_found,
+        processed_count=len(result.results),
+        results=[
+            PipelineResultResponse(
+                video_path=str(item.video_path),
+                output_srt=str(item.output_srt) if item.output_srt else None,
+                status=item.status,
+                source_method=item.source_method,
+                details=item.details,
+            )
+            for item in result.results
+        ],
+        message=result.message,
     )
 
 
 @app.post("/api/v1/guardian/audit", response_model=GuardianAuditResponse)
 def trigger_guardian_audit(apply_cleanup: bool = False) -> GuardianAuditResponse:
     """Trigger manual Guardian audit for orphan subtitle cleanup and sync validation."""
-    return run_guardian_audit(apply_cleanup=apply_cleanup)
-
-
+    result = run_guardian_audit(apply_cleanup=apply_cleanup)
+    return GuardianAuditResponse(**result.__dict__)

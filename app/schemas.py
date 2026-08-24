@@ -6,18 +6,19 @@ requests, responses, media probe results, and pipeline status.
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Literal
 from pydantic import BaseModel, Field
+
+from app.models import PipelineStatus
 
 
 class HealthResponse(BaseModel):
     """API health status and Whisper runtime configuration."""
 
     status: str = Field(default="ok", description="Service health status")
-    version: str = Field(default="0.1.0", description="Microservice semantic version")
+    version: str = Field(..., description="Microservice semantic version")
     whisper_model: str = Field(..., description="Active Whisper model name")
     whisper_device: str = Field(..., description="Hardware compute device (cuda/cpu)")
+    translation_model: str = Field(..., description="Active Ollama translation model")
 
 
 class ProbeRequest(BaseModel):
@@ -65,15 +66,7 @@ class PipelineResultResponse(BaseModel):
 
     video_path: str = Field(..., description="Target video path")
     output_srt: str | None = Field(default=None, description="Path to generated/extracted .srt file if successful")
-    status: Literal[
-        "extracted",
-        "extracted_and_translated",
-        "whisper_transcribed",
-        "whisper_transcribed_and_translated",
-        "already_exists",
-        "failed",
-        "ignored",
-    ] = Field(..., description="Pipeline execution outcome status")
+    status: PipelineStatus = Field(..., description="Pipeline execution outcome status")
     source_method: str = Field(..., description="Method used (e.g. embedded_pt_sub, embedded_en_sub, whisper_asr)")
     details: str = Field(default="", description="Human readable result summary or error message")
 

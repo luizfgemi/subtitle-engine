@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
-
 def format_timestamp(seconds: float) -> str:
     """Convert floating seconds to SRT timestamp format (HH:MM:SS,mmm)."""
     hrs = int(seconds // 3600)

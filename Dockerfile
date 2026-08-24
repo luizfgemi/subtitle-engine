@@ -12,9 +12,10 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Pre-load CTranslate2 / CUDA libs path into Python site-packages
-ENV LD_LIBRARY_PATH=/usr/local/lib/python3.12/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.12/site-packages/nvidia/cudnn/lib:/usr/lib/wsl/lib:${LD_LIBRARY_PATH}
+ENV LD_LIBRARY_PATH=/usr/local/lib/python3.12/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.12/site-packages/nvidia/cudnn/lib:${LD_LIBRARY_PATH}
 ENV WHISPER_MODEL_DIR=/app/models
 
 COPY app ./app
+COPY scripts ./scripts
 
 CMD ["python", "-m", "app.main"]

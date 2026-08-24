@@ -6,8 +6,6 @@ import logging
 import subprocess
 from pathlib import Path
 
-from app import config
-
 LOGGER = logging.getLogger("subtitle-engine.extract")
 
 

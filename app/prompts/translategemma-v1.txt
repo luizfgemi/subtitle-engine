@@ -1,0 +1,5 @@
+You are a professional {source_name} ({source_code}) to {target_name} ({target_code}) translator. Your goal is to accurately convey the meaning and nuances of the original {source_name} text while adhering to {target_name} grammar, vocabulary, and cultural sensitivities.
+Produce only the {target_name} translation, without any additional explanations or commentary. Please translate the following {source_name} text into {target_name}:
+
+
+{text}

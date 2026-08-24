@@ -1,0 +1,131 @@
+#!/usr/bin/env python3
+"""Audit generated SRT files against embedded English subtitle tracks."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.audit import audit_cues
+from app.srt import parse_srt
+
+VIDEO_EXTENSIONS = (".mkv", ".mp4", ".m4v", ".avi", ".mov", ".ts", ".m2ts")
+WATERMARK = "Tradução automática • modelo:"
+
+
+def _video_for(subtitle: Path) -> Path | None:
+    stem = subtitle.name.removesuffix(".pt-BR.srt")
+    return next(
+        (subtitle.with_name(stem + extension) for extension in VIDEO_EXTENSIONS
+         if subtitle.with_name(stem + extension).is_file()),
+        None,
+    )
+
+
+def _is_generated(subtitle: Path) -> bool:
+    try:
+        with subtitle.open(encoding="utf-8", errors="replace") as stream:
+            return WATERMARK in stream.read(512)
+    except OSError:
+        return False
+
+
+def _container_mounts(container: str) -> list[tuple[Path, Path]]:
+    result = subprocess.run(
+        ["podman", "inspect", container], capture_output=True, text=True, check=True
+    )
+    mounts = json.loads(result.stdout)[0]["Mounts"]
+    return sorted(
+        ((Path(mount["Source"]), Path(mount["Destination"])) for mount in mounts),
+        key=lambda pair: len(str(pair[0])),
+        reverse=True,
+    )
+
+
+def _mounted_path(path: Path, mounts: list[tuple[Path, Path]]) -> Path:
+    for source, destination in mounts:
+        try:
+            return destination / path.relative_to(source)
+        except ValueError:
+            continue
+    return path
+
+
+def _run(tool: str, arguments: list[str], container: str | None) -> subprocess.CompletedProcess[str]:
+    command = [tool, *arguments]
+    if container:
+        command = ["podman", "exec", container, *command]
+    return subprocess.run(command, capture_output=True, text=True, timeout=120, check=True)
+
+
+def _embedded_english(
+    video: Path, container: str | None, mounts: list[tuple[Path, Path]]
+) -> str | None:
+    media_path = _mounted_path(video, mounts)
+    probe = _run(
+        "ffprobe",
+        ["-loglevel", "quiet", "-print_format", "json", "-show_streams", str(media_path)],
+        container,
+    )
+    streams = json.loads(probe.stdout).get("streams", [])
+    tracks = [
+        stream for stream in streams
+        if stream.get("codec_type") == "subtitle"
+        and stream.get("tags", {}).get("language", "").casefold() in {"en", "eng"}
+        and not stream.get("disposition", {}).get("comment", 0)
+        and "commentary" not in stream.get("tags", {}).get("title", "").casefold()
+    ]
+    if not tracks:
+        return None
+    result = _run(
+        "ffmpeg",
+        ["-loglevel", "error", "-i", str(media_path), "-map", f"0:{tracks[0]['index']}",
+         "-f", "srt", "pipe:1"],
+        container,
+    )
+    return result.stdout
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("roots", nargs="+", type=Path)
+    parser.add_argument("--container", help="run ffprobe/ffmpeg inside this Podman container")
+    args = parser.parse_args()
+    if not args.container and (not shutil.which("ffprobe") or not shutil.which("ffmpeg")):
+        parser.error("ffprobe/ffmpeg not found; pass --container")
+    mounts = _container_mounts(args.container) if args.container else []
+    total_files = total_issues = 0
+
+    for root in args.roots:
+        subtitles = [root] if root.is_file() else root.rglob("*.srt")
+        for subtitle in subtitles:
+            if not _is_generated(subtitle):
+                continue
+            video = _video_for(subtitle)
+            if not subtitle.is_file() or video is None:
+                continue
+            source = _embedded_english(video, args.container, mounts)
+            if not source:
+                print(f"SKIP\t{subtitle}\tno embedded English track")
+                continue
+            issues = audit_cues(parse_srt(source), parse_srt(subtitle.read_text(encoding="utf-8")))
+            total_files += 1
+            total_issues += len(issues)
+            print(f"FILE\t{subtitle}\t{len(issues)} warning(s)")
+            for issue in issues:
+                source_text = issue.source.replace("\n", " ")
+                target_text = issue.translated.replace("\n", " ")
+                print(f"  {issue.kind}\t{issue.timestamp}\t{source_text} -> {target_text}")
+
+    print(f"SUMMARY\t{total_files} file(s)\t{total_issues} warning(s)")
+    return 1 if total_issues else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

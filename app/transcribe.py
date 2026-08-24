@@ -3,18 +3,12 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import Any
-
-from app import config
-from app.formatter import format_timestamp, sanitize_srt_text
-
-import logging
 import threading
 from pathlib import Path
 from typing import Any
 
 from app import config
+from app.formatter import format_timestamp, sanitize_srt_text
 
 LOGGER = logging.getLogger("subtitle-engine.transcribe")
 
